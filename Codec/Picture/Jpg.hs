@@ -436,8 +436,6 @@ gatherScanInfo img = head [(a, b) | JpgScans a b <- jpgFrame img]
 --
 -- This function can output the following pixel types :
 --
---    * PixelY8
---
 --    * PixelYCbCr8
 --
 decodeJpeg :: B.ByteString -> Either String DynamicImage
@@ -446,7 +444,6 @@ decodeJpeg file = case runGetStrict get file of
   Right img -> case (compCount, imgKind) of
                  (_, Nothing) -> Left "Unknown Jpg kind"
                  (3, Just ProgressiveDCT) -> Right . ImageYCbCr8 $ decodeProgressive
-                 (1, Just BaseLineDCT) -> Right . ImageY8 $ Image imgWidth imgHeight pixelData
                  (3, Just BaseLineDCT) -> Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
                  _ -> Left "Wrong component count"
 

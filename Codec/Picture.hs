@@ -22,9 +22,6 @@ module Codec.Picture (
                      -- * Generic image writing
                      , saveBmpImage
                      , saveJpgImage
-                     , savePngImage
-                     , saveTiffImage
-                     , saveRadianceImage
 
                      -- * Specific image format functions
                      -- ** Bitmap handling 
@@ -36,38 +33,11 @@ module Codec.Picture (
                      , encodeDynamicBitmap 
                      , writeDynamicBitmap 
 
-                     -- ** Gif handling
-                     , readGif
-                     , readGifImages
-                     , decodeGif
-                     , decodeGifImages
-
                      -- ** Jpeg handling
                      , readJpeg
                      , decodeJpeg 
                      , encodeJpeg
                      , encodeJpegAtQuality
-
-                     -- ** Png handling
-                     , PngSavable( .. )
-                     , readPng
-                     , decodePng
-                     , writePng
-                     , encodeDynamicPng
-                     , writeDynamicPng
-
-                     -- ** Tiff handling
-                     , readTiff
-                     , TiffSaveable
-                     , decodeTiff
-                     , encodeTiff
-                     , writeTiff
-
-                     -- ** HDR (Radiance/RGBE) handling
-                     , readHDR
-                     , decodeHDR
-                     , encodeHDR
-                     , writeHDR
 
                      -- * Image types and pixel types
                      -- ** Image
@@ -77,19 +47,9 @@ module Codec.Picture (
                      , Pixel( .. )
                      -- $graph
                      , Pixel8
-                     , Pixel16
-                     , PixelF
 
-                     , PixelYA8( .. )
-                     , PixelYA16( .. )
                      , PixelRGB8( .. )
-                     , PixelRGB16( .. )
-                     , PixelRGBF( .. )
-                     , PixelRGBA8( .. )
-                     , PixelRGBA16( .. )
                      , PixelYCbCr8( .. )
-                     , PixelCMYK8( .. )
-                     , PixelCMYK16( .. )
                      ) where
 
 import Control.Applicative( (<$>) )
@@ -99,28 +59,14 @@ import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
                            , writeBitmap, encodeBitmap
                            , encodeDynamicBitmap, writeDynamicBitmap )
 import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
-import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
-                        , encodeDynamicPng , writeDynamicPng )
-import Codec.Picture.Gif( decodeGif, decodeGifImages )
-import Codec.Picture.HDR( decodeHDR
-                        , encodeHDR
-                        , writeHDR
-                        )
-import Codec.Picture.Tiff( decodeTiff
-                         , TiffSaveable
-                         , encodeTiff
-                         , writeTiff )
 import Codec.Picture.Saving
 import Codec.Picture.Types
--- import System.IO ( withFile, IOMode(ReadMode) )
 #ifdef WITH_MMAP_BYTESTRING
 import System.IO.MMap ( mmapFileByteString )
 #endif
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-
-#include "ConvGraph.hs"
 
 -- | Return the first Right thing, accumulating error
 eitherLoad :: c -> [(String, c -> Either String b)] -> Either String b
@@ -156,29 +102,8 @@ readImage = withImageDecoder decodeImage
 -- the decoded image in it's own colorspace
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
-                                 ,("PNG", decodePng)
                                  ,("Bitmap", decodeBitmap)
-                                 ,("GIF", decodeGif)
-                                 ,("HDR", decodeHDR)
-                                 ,("Tiff", decodeTiff)
                                  ]
-    
--- | Helper function trying to load a png file from a file on disk.
-readPng :: FilePath -> IO (Either String DynamicImage)
-readPng = withImageDecoder decodePng 
-
--- | Helper function trying to load a gif file from a file on disk.
-readGif :: FilePath -> IO (Either String DynamicImage)
-readGif = withImageDecoder decodeGif
-
--- | Helper function trying to load tiff file from a file on disk.
-readTiff :: FilePath -> IO (Either String DynamicImage)
-readTiff = withImageDecoder decodeTiff
-
--- | Helper function trying to load all the images of an animated
--- gif file.
-readGifImages :: FilePath -> IO (Either String [Image PixelRGB8])
-readGifImages = withImageDecoder decodeGifImages
 
 -- | Try to load a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
@@ -190,37 +115,10 @@ readJpeg = withImageDecoder decodeJpeg
 readBitmap :: FilePath -> IO (Either String DynamicImage)
 readBitmap = withImageDecoder decodeBitmap
 
--- | Try to load a .pic file. The colorspace can only be
--- RGB with floating point precision.
-readHDR :: FilePath -> IO (Either String DynamicImage)
-readHDR = withImageDecoder decodeHDR
-
 -- | Save an image to a '.jpg' file, will do everything it can to save an image.
 saveJpgImage :: Int -> FilePath -> DynamicImage -> IO ()
 saveJpgImage quality path img = L.writeFile path $ imageToJpg quality img
 
--- | Save an image to a '.tiff' file, will do everything it can to save an image.
-saveTiffImage :: FilePath -> DynamicImage -> IO ()
-saveTiffImage path img = L.writeFile path $ imageToTiff img
-
--- | Save an image to a '.hdr' file, will do everything it can to save an image.
-saveRadianceImage :: FilePath -> DynamicImage -> IO ()
-saveRadianceImage path = L.writeFile path . imageToRadiance
-
--- | Save an image to a '.png' file, will do everything it can to save an image.
--- For example, a simple transcoder to png
---
--- > transcodeToPng :: FilePath -> FilePath -> IO ()
--- > transcodeToPng pathIn pathOut = do
--- >    eitherImg <- readImage pathIn
--- >    case eitherImg of
--- >        Left _ -> return ()
--- >        Right img -> savePngImage pathOut img
---
-savePngImage :: String -> DynamicImage -> IO ()
-savePngImage path img = L.writeFile path $ imageToPng img
-
 -- | Save an image to a '.bmp' file, will do everything it can to save an image.
 saveBmpImage :: String -> DynamicImage -> IO ()
 saveBmpImage path img = L.writeFile path $ imageToBitmap img
-

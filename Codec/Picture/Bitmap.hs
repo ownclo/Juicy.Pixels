@@ -178,31 +178,6 @@ instance BmpEncodable Pixel8 where
                   stridePut buff w stride
                   V.unsafeFreeze buff
 
-instance BmpEncodable PixelRGBA8 where
-    bitsPerPixel _ = 32
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
-      forM_ [h - 1, h - 2 .. 0] $ \l -> putVector $ runST $ putLine l
-      where putVector vec = putByteString . blitVector vec 0 $ w * 4
-            putLine line = do
-                buff <- M.new $ 4 * w
-                let initialIndex = line * w * 4
-                    inner col _ _ | col >= w = return ()
-                    inner col writeIdx readIdx = do
-                        let r = arr `V.unsafeIndex` readIdx
-                            g = arr `V.unsafeIndex` (readIdx + 1)
-                            b = arr `V.unsafeIndex` (readIdx + 2)
-                            a = arr `V.unsafeIndex` (readIdx + 3)
-
-                        (buff `M.unsafeWrite` writeIdx) b
-                        (buff `M.unsafeWrite` (writeIdx + 1)) g
-                        (buff `M.unsafeWrite` (writeIdx + 2)) r
-                        (buff `M.unsafeWrite` (writeIdx + 3)) a
-
-                        inner (col + 1) (writeIdx + 4) (readIdx + 4)
-
-                inner 0 0 initialIndex
-                V.unsafeFreeze buff
-
 instance BmpEncodable PixelRGB8 where
     bitsPerPixel _ = 24
     bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
@@ -308,8 +283,6 @@ writeDynamicBitmap path img = case encodeDynamicBitmap img of
 --
 encodeDynamicBitmap :: DynamicImage -> Either String L.ByteString
 encodeDynamicBitmap (ImageRGB8 img) = Right $ encodeBitmap img
-encodeDynamicBitmap (ImageRGBA8 img) = Right $ encodeBitmap img
-encodeDynamicBitmap (ImageY8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap _ = Left "Unsupported image format for bitmap export"
 
 
@@ -346,5 +319,3 @@ encodeBitmapWithPalette pal@(BmpPalette palette) img =
               colorCount = 0,
               importantColours = paletteSize
           }
-
-

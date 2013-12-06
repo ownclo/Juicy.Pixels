@@ -61,11 +61,7 @@ Library
   Default-Language: Haskell2010
   Exposed-modules:  Codec.Picture,
                     Codec.Picture.Bitmap,
-                    Codec.Picture.Gif,
-                    Codec.Picture.Png,
                     Codec.Picture.Jpg,
-                    Codec.Picture.HDR,
-                    Codec.Picture.Tiff,
                     Codec.Picture.Saving,
                     Codec.Picture.Types
 
@@ -91,13 +87,8 @@ Library
                  Codec.Picture.Jpg.Types,
                  Codec.Picture.Jpg.Common,
                  Codec.Picture.Jpg.Progressive,
-                 Codec.Picture.Gif.LZW,
-                 Codec.Picture.Png.Export,
-                 Codec.Picture.Png.Type,
                  Codec.Picture.BitWriter,
-                 Codec.Picture.InternalHelper,
-                 Codec.Picture.VectorByteConversion
+                 Codec.Picture.InternalHelper
 
-  Install-Includes: Codec/Picture/ConvGraph.hs
   Include-Dirs: Codec/Picture
 
