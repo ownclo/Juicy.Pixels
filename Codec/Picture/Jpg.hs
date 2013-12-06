@@ -40,7 +40,6 @@ import Codec.Picture.BitWriter
 import Codec.Picture.Types
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.Common
-import Codec.Picture.Jpg.Progressive
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastDct
 
@@ -443,7 +442,6 @@ decodeJpeg file = case runGetStrict get file of
   Left err -> Left err
   Right img -> case (compCount, imgKind) of
                  (_, Nothing) -> Left "Unknown Jpg kind"
-                 (3, Just ProgressiveDCT) -> Right . ImageYCbCr8 $ decodeProgressive
                  (3, Just BaseLineDCT) -> Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
                  _ -> Left "Wrong component count"
 
@@ -457,13 +455,6 @@ decodeJpeg file = case runGetStrict get file of
             imageSize = imgWidth * imgHeight * compCount
             (st, wrotten) = execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
             Just fHdr = currentFrame st
-
-            decodeProgressive = runST $
-                progressiveUnpack
-                    (maximumHorizontalResolution st, maximumVerticalResolution st)
-                    fHdr
-                    (quantizationMatrices st)
-                    wrotten >>= unsafeFreezeImage
 
             pixelData = runST $ do
                 resultImage <- M.new imageSize
