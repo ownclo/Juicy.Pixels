@@ -34,6 +34,7 @@ Flag Mmap
 
 Executable imageTest
   Default-Language: Haskell2010
+  Hs-Source-Dirs: exec-src
   Main-Is: main.hs
   Ghc-options: -O3 -Wall
   -- -O3 -Wall 
@@ -42,7 +43,8 @@ Executable imageTest
   -- 
   Include-Dirs: Codec/Picture
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
-  Build-depends: base                >= 4       && < 5,
+  Build-depends: JuicyPixels,
+                 base                >= 4       && < 5,
                  bytestring          >= 0.9     && < 0.11,
                  mtl                 >= 1.1     && < 2.2,
                  binary              >= 0.6.4.0 && < 0.8,
