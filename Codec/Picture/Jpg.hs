@@ -43,6 +43,10 @@ import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastDct
 
+import Codec.Picture.Jpg.Parser
+-- import Codec.Picture.Jpg.Env
+import Codec.Picture.Jpg.EnvReader
+
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
 quantize table block = update 0
@@ -466,6 +470,17 @@ decodeJpeg file = case runGetStrict get file of
                     wrotten
                     wrapped
                 VS.unsafeFreeze resultImage
+
+decodeJpeg' :: B.ByteString -> Either String DynamicImage
+decodeJpeg' file = Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
+    where (Right (env, rest)) = parseHeader file
+          spec = getMCUSpec env
+          imgWidth = undefined
+          imgHeight = undefined
+          pixelData = undefined
+          compCount = undefined
+          imgSize = imgWidth * imgHeight * compCount
+
 
 extractBlock :: Image PixelYCbCr8       -- ^ Source image
              -> MutableMacroBlock s Int16      -- ^ Mutable block where to put extracted block

@@ -31,3 +31,5 @@ cabal-dev
 .cabal-sandbox
 magick
 .hsenv/
+img/sample.bmp
+Session.vim
