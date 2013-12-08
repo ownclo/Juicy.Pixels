@@ -474,12 +474,23 @@ decodeJpeg file = case runGetStrict get file of
 decodeJpeg' :: B.ByteString -> Either String DynamicImage
 decodeJpeg' file = Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
     where (Right (env, rest)) = parseHeader file
-          spec = getMCUSpec env
+          (_, spec) = getMCUSpec env
           imgWidth = undefined
           imgHeight = undefined
-          pixelData = undefined
           compCount = undefined
           imgSize = imgWidth * imgHeight * compCount
+
+          decodeImage' :: MCUSpec
+                       -> MutableImage s PixelYCbCr8
+                       -> ST s ()
+          decodeImage' = undefined
+
+          pixelData :: VS.Vector Word8
+          pixelData = runST $ do
+              resultImage <- M.new imgSize
+              let wrappedImg = MutableImage imgWidth imgHeight resultImage
+              decodeImage' spec wrappedImg
+              VS.unsafeFreeze resultImage
 
 
 extractBlock :: Image PixelYCbCr8       -- ^ Source image

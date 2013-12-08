@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 module Codec.Picture.Jpg.EnvReader
-    ( getMCUSpec
+    ( MCUSpec
+    , getMCUSpec
     ) where
 
 import Codec.Picture.Jpg.Env
