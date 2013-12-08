@@ -1,34 +1,16 @@
 -- test file, don't care about unused, on the contrary...
-{-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -fno-warn-unused-binds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 import Codec.Picture
-import Codec.Picture.Jpg( encodeJpeg )
 import System.Environment
 
-import Data.Binary
-import Data.Monoid
-import Data.Word( Word8 )
-import Control.Monad( forM_ )
 import System.FilePath
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
-import Codec.Picture.Saving
-import qualified Data.Vector.Storable as V
 
-import Control.Applicative( (<$>) )
 import qualified Criterion.Config as C
 import Criterion.Main
-import Control.DeepSeq
-
-greyScaleWitness :: Image Pixel8
-greyScaleWitness = img 232 241
-    where img w h = Image w h $ V.fromListN (w * h) $ pixels w h
-          pixels w h = [pixel x y | y <- [0 .. h-1], x <- [0 .. w-1] ]
-          pixel x y = truncate $ sqrt dist
-                where xf = fromIntegral $ x - 100 :: Int
-                      yf = fromIntegral $ y - 100
-                      dist = (fromIntegral $ xf * xf + yf * yf) :: Double
 
 jpegValidTests :: [FilePath]
 jpegValidTests = [ "explore_jpeg.jpg"

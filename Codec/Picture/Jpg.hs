@@ -400,8 +400,9 @@ decodeImage frame quants lst outImage = do
         (dcCoeff, block) <-
               decompressMacroBlock dcTree acTree qTable zigZagArray $ fromIntegral dc
         lift $ (dcArray `M.unsafeWrite` compIdx) dcCoeff
-        let verticalLimited = y == imageMcuHeight - 1
-        if (x == imageMcuWidth - 1) || verticalLimited then
+        let verticalLimited   = y == imageMcuHeight - 1
+            horizontalLimited = x == imageMcuWidth - 1
+        if horizontalLimited || verticalLimited then
           lift $ unpackMacroBlock imgComponentCount
                                   subX subY compIdx
                                   (x * maxiW + xd) (y * maxiH + yd) outImage block

@@ -41,23 +41,26 @@ Executable imageTest
   -- 
   -- -ddump-simpl
   -- 
-  Include-Dirs: Codec/Picture
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: JuicyPixels,
                  base                >= 4       && < 5,
                  bytestring          >= 0.9     && < 0.11,
-                 mtl                 >= 1.1     && < 2.2,
-                 binary              >= 0.6.4.0 && < 0.8,
-                 transformers        >= 0.2.2   && < 0.4,
-                 vector              >= 0.9    && < 0.11,
-                 primitive           >= 0.5     && < 0.6,
-                 deepseq             >= 1.1     && < 1.4,
                  filepath            >= 1.3     && < 1.4,
                  criterion           >= 0.6.2   && < 0.7
 
   if flag(Mmap)
     Build-depends: mmap
     CC-Options: "-DWITH_MMAP_BYTESTRING"
+
+Executable jpgDecoder
+  Default-Language: Haskell2010
+  Hs-Source-Dirs: exec-src
+  Main-Is: decoder.hs
+  Ghc-options: -O3 -Wall
+  Build-depends: JuicyPixels,
+                 base,
+                 bytestring
+
 Library
   Default-Language: Haskell2010
   Exposed-modules:  Codec.Picture,
