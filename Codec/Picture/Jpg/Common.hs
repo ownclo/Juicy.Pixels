@@ -32,6 +32,7 @@ import Foreign.Storable ( Storable )
 import Codec.Picture.Types
 import Codec.Picture.BitWriter
 import Codec.Picture.Jpg.Types
+import Codec.Picture.Jpg.Huffman
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.DefaultTable
 

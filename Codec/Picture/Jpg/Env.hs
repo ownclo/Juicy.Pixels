@@ -4,11 +4,12 @@
 
 module Codec.Picture.Jpg.Env where
 
-import Codec.Picture.Jpg.Huffman(HTree(..))
+import Codec.Picture.Jpg.Huffman(HuffmanTree)
 
 import Data.Word(Word8, Word16)
 import qualified Data.Map as M
 import Control.Lens(makeLenses)
+import Data.Int(Int16)
 
 type Byte = Word8
 type Word = Word16
@@ -17,11 +18,9 @@ type Table a = M.Map Int a
 type BC = Int
 type Run = Int
 
-type DCHuffTree = HTree BC
-type ACHuffTree = HTree (Run, BC)
 data HClass = ACHuff | DCHuff deriving Show
 
-type QTable = [Int] --- XXX: Temporary!
+type QTable = [Int16] --- XXX: Temporary!
 
 data Dim a = Dim {
            _y, _x :: !a
@@ -57,12 +56,12 @@ type ScanHeader = [ScanCompSpec]
 data HuffmanSegment = HFS {
             _type    :: !HClass,              -- AC or DC table
             _tableId :: {-# UNPACK #-} !Byte, -- id of a table (see _dcId)
-            _tree    :: HTree Int             -- Huffman tree
+            _tree    :: HuffmanTree
     } deriving Show
 
 data HuffTables = HuffTables { -- retrieves a huffman tree given its type and id.
-            _dcTable :: Table DCHuffTree,
-            _acTable :: Table ACHuffTree
+            _dcTable :: Table HuffmanTree,
+            _acTable :: Table HuffmanTree
     } deriving Show
 
 -- Environment will be updated by headers.

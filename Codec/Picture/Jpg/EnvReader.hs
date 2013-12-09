@@ -1,65 +1,89 @@
-{-# LANGUAGE BangPatterns #-}
 module Codec.Picture.Jpg.EnvReader
-    ( MCUSpec
-    , getMCUSpec
+    ( ImageSpec(..)
+    , CompMCUSpec(..)
+    , DataUnitSpec(..)
+    , getImageSpec
     ) where
 
 import Codec.Picture.Jpg.Env
+import Codec.Picture.Jpg.Huffman( packHuffmanTree, HuffmanPackedTree )
+import Codec.Picture.Jpg.Types( MacroBlock )
 
 import Control.Applicative
 
 import qualified Data.Map as M
 import Data.Maybe(fromJust)
+import qualified Data.Vector.Storable as VS
+import Data.Int( Int16 )
+
+data ImageSpec = ImageSpec {
+            compCount_  :: !Int,
+            imgSize_    :: !(Int, Int),
+            imgMcuSize_ :: !(Int, Int),
+            maxSFacts_  :: !(Int, Int),
+            mcuSpec_    :: [CompMCUSpec]
+    } deriving Show
+
+data CompMCUSpec = CompMCUSpec {
+            _compIdx      :: !Int,
+            _numDataUnits :: !(Int, Int), -- number of DUs in an MCU (h and v)
+            _scaleFactors :: !(Int, Int), -- miltiplicators of _one_ DU
+            _duSpec       :: !DataUnitSpec
+    } deriving Show
+
+-- Everything that is needed in order to
+-- decode particular Data Unit.
+data DataUnitSpec = DataUnitSpec {
+            _qTable :: !(MacroBlock Int16),
+            _dcTree :: !HuffmanPackedTree,
+            _acTree :: !HuffmanPackedTree
+    } deriving Show
 
 data FullCompSpec = FullCompSpec {
             _fs :: !FrameCompSpec,
             _ss :: !ScanCompSpec
     } deriving Show
 
-data CompMCUSpec = CompMCUSpec {
-            _numDataUnits :: !(Dim Int), -- number of DUs in an MCU (h and v)
-            _duSpec       :: !DataUnitSpec
-    } deriving Show
+getImageSpec :: Env -> ImageSpec
+getImageSpec (Env (HuffTables dcT acT)
+                  quanT
+                  (FrameHeader (Dim y x) frameCS)
+                  scanH) = imageSpec where
 
-type MCUSpec = [CompMCUSpec]
+    imageSpec = ImageSpec compCount
+                          (imgWidth, imgHeight)
+                          (imgMcuWidth, imgMcuHeight)
+                          (maxXsf, maxYsf)
+                          mcuSpec
 
--- Everything that is needed in order to
--- decode particular Data Unit.
-data DataUnitSpec = DataUnitSpec {
-            _scaleFactors :: !(Dim Int), -- miltiplicators of _one_ DU
-            _qTable :: !QTable,
-            _dcTree :: !DCHuffTree,
-            _acTree :: !ACHuffTree
-    } deriving Show
-
-getMCUSpec :: Env -> (Dim Int, MCUSpec)
-getMCUSpec (Env (HuffTables dcT acT)
-                quanT
-                (FrameHeader (Dim x y) frameCS)
-                scanH) = (numMCUs, mcuSpec) where
+    compCount = length scanH
+    imgWidth = fI x
+    imgHeight = fI y
+    imgMcuWidth = imgWidth `ceilDiv` (8 * maxXsf)
+    imgMcuHeight = imgHeight `ceilDiv` (8 * maxYsf)
+    (maxYsf, maxXsf) = getMaxSampFactors fullCompSpecs
+    mcuSpec = zipWith buildCompMCU [0..] fullCompSpecs
 
     fullCompSpecs = zipById frameCS scanH
-    (maxYsf, maxXsf) = getMaxSampFactors fullCompSpecs
-    mcuSpec = map buildCompMCU fullCompSpecs
 
-    numMCUs = Dim (fI y `ceilDiv` 8*maxYsf)
-                  (fI x `ceilDiv` 8*maxXsf)
+    upSampFactor (Dim h w) = (maxYsf `div` h, maxXsf `div` w)
 
-    upSampFactor (Dim h w) = Dim (maxYsf `div` h)
-                                 (maxXsf `div` w)
+    buildCompMCU compIdx (FullCompSpec
+                            (FrameCompSpec _ samplings qI)
+                            (ScanCompSpec _ dcI acI))
+                = compMCUSpec where
+        compMCUSpec = CompMCUSpec compIdx
+                                  (duWidth, duHeight)
+                                  (subX, subY)
+                                  duSpec
 
-    -- it needs all tables + maxY and maxX from outer closure.
-    buildCompMCU (FullCompSpec
-                    (FrameCompSpec _ samplings qI)
-                    (ScanCompSpec _ dcI acI))
-                = CompMCUSpec nd duSpec where
-        nd = fI <$> samplings
-        ups = upSampFactor nd
-        duSpec = DataUnitSpec ups qtable dctree actree
+        nd@(Dim duHeight duWidth) = fI <$> samplings
+        (subY, subX) = upSampFactor nd
+        duSpec = DataUnitSpec qtable dctree actree
 
-        qtable = fromJust $ M.lookup (fI qI) quanT
-        dctree = fromJust $ M.lookup (fI dcI) dcT
-        actree = fromJust $ M.lookup (fI acI) acT
+        qtable = VS.fromListN 64 . fromJust $ M.lookup (fI qI) quanT
+        dctree = packHuffmanTree . fromJust $ M.lookup (fI dcI) dcT
+        actree = packHuffmanTree . fromJust $ M.lookup (fI acI) acT
 
 getMaxSampFactors :: [FullCompSpec] -> (Int, Int)
 getMaxSampFactors fullCompSpecs = (maxYsf, maxXsf) where

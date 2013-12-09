@@ -1,5 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Codec.Picture.Jpg.Types( MutableMacroBlock
+                              , MacroBlock
+                              , QuantificationTable
                               , createEmptyMutableMacroBlock
                               , printMacroBlock
                               , printPureMacroBlock
@@ -50,10 +52,17 @@ import Data.Binary.Put( Put
                       )
 
 import Codec.Picture.InternalHelper
-import Codec.Picture.Jpg.DefaultTable
+import Codec.Picture.Jpg.Huffman
 
 {-import Debug.Trace-}
 import Text.Printf
+
+-- | Represent a compact array of 8 * 8 values. The size
+-- is not guarenteed by type system, but if makeMacroBlock is
+-- used, everything should be fine size-wise
+type MacroBlock a = VS.Vector a
+
+type QuantificationTable = MacroBlock Int16
 
 -- | Type only used to make clear what kind of integer we are carrying
 -- Might be transformed into newtype in the future

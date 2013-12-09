@@ -13,9 +13,11 @@ module Codec.Picture.Jpg( decodeJpeg
                         , JpgDecoderState( JpgDecoderState )
                         ) where
 
+import Debug.Trace( traceShow )
+
 import Control.Arrow( (>>>) )
 import Control.Applicative( pure, (<$>) )
-import Control.Monad( when, forM_ )
+import Control.Monad( when, forM_, void )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import Control.Monad.Trans.RWS.Strict( RWS, modify, tell, gets, execRWS )
@@ -42,6 +44,7 @@ import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastDct
+import Codec.Picture.Jpg.Huffman
 
 import Codec.Picture.Jpg.Parser
 -- import Codec.Picture.Jpg.Env
@@ -149,7 +152,7 @@ unpack444Ycbcr compIdx x y
             val7 <- pixelClamp <$> (block `M.unsafeRead` (readIdx + 7))
 
             (img `M.unsafeWrite` idx) val0
-            (img `M.unsafeWrite` (idx + (3 * 1))) val1
+            (img `M.unsafeWrite` (idx +  3     )) val1
             (img `M.unsafeWrite` (idx + (3 * 2))) val2
             (img `M.unsafeWrite` (idx + (3 * 3))) val3
             (img `M.unsafeWrite` (idx + (3 * 4))) val4
@@ -194,8 +197,8 @@ unpack421Ycbcr compIdx x y
             (img `M.unsafeWrite` idx)       v0
             (img `M.unsafeWrite` (idx + 3)) v0
 
-            (img `M.unsafeWrite` (idx + 6 * 1))      v1
-            (img `M.unsafeWrite` (idx + 6 * 1 + 3))  v1
+            (img `M.unsafeWrite` (idx + 6    ))      v1
+            (img `M.unsafeWrite` (idx + 6     + 3))  v1
 
             (img `M.unsafeWrite` (idx + 6 * 2))      v2
             (img `M.unsafeWrite` (idx + 6 * 2 + 3))  v2
@@ -273,7 +276,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
   where (selectionLow, selectionHigh) = spectralSelection hdr
         approxHigh = fromIntegral $ successiveApproxHigh hdr
         approxLow = fromIntegral $ successiveApproxLow hdr
-        
+
         scanSpecifier scanCount scanSpec = do
             let dcIndex = fromIntegral $ dcEntropyCodingTable scanSpec
                 acIndex = fromIntegral $ acEntropyCodingTable scanSpec
@@ -340,7 +343,7 @@ jpgMachineStep (JpgHuffmanTable tables) = mapM_ placeHuffmanTrees tables
   where placeHuffmanTrees (spec, tree) = case huffmanTableClass spec of
             DcComponent -> modify $ \s ->
                 let neu = dcDecoderTables s // [(idx, tree)] in 
-                s { dcDecoderTables = neu `seq` neu }
+                s { dcDecoderTables = neu }
                     where idx = fromIntegral $ huffmanTableDest spec
                           
             AcComponent -> modify $ \s ->
@@ -354,73 +357,6 @@ jpgMachineStep (JpgQuantTable tables) = mapM_ placeQuantizationTables tables
             modify $ \s ->
                 s { quantizationMatrices =  quantizationMatrices s // [(idx, tableData)] }
 
-unpackerDecision :: Int -> (Int, Int) -> Unpacker s
-unpackerDecision 1 (1, 1) = unpack444Y
-unpackerDecision _ (1, 1) = unpack444Ycbcr
-unpackerDecision _ (2, 1) = unpack421Ycbcr
-unpackerDecision compCount (xScalingFactor, yScalingFactor) =
-    unpackMacroBlock compCount xScalingFactor yScalingFactor
-
-decodeImage :: JpgFrameHeader
-            -> V.Vector (MacroBlock Int16)
-            -> [([(JpgUnpackerParameter, Unpacker s)], L.ByteString)]
-            -> MutableImage s PixelYCbCr8 -- ^ Result image to write into
-            -> ST s ()
-decodeImage frame quants lst outImage = do
-  let compCount = length $ jpgComponents frame
-  zigZagArray <- createEmptyMutableMacroBlock
-  dcArray <- M.replicate compCount 0  :: ST s (M.STVector s DcCoefficient)
-  resetCounter <- newSTRef restartIntervalValue
-
-  forM_ lst $ \(params, str) -> do
-    let componentsInfo = V.fromList params
-        compReader = initBoolStateJpg . B.concat $ L.toChunks str
-        maxiW = maximum [fst $ subSampling c | (c,_) <- params]
-        maxiH = maximum [snd $ subSampling c | (c,_) <- params]
-        mcuBlockWidth = maxiW * dctBlockSize
-        mcuBlockHeight = maxiH * dctBlockSize
-        imageMcuWidth = (imgWidth + mcuBlockWidth - 1) `div` mcuBlockWidth
-        imageMcuHeight = (imgHeight + mcuBlockHeight - 1) `div` mcuBlockHeight 
-
-    execBoolReader compReader $ rasterMap imageMcuWidth imageMcuHeight $ \x y -> do
-      resetLeft <- lift $ readSTRef resetCounter
-      if resetLeft == 0 then do
-        lift $ M.set dcArray 0
-        byteAlignJpg
-        _restartCode <- decodeRestartInterval
-        lift $ resetCounter `writeSTRef` (restartIntervalValue - 1)
-      else
-        lift $ resetCounter `writeSTRef` (resetLeft - 1)
-
-      V.forM_ componentsInfo $ \(comp, unpack) -> do
-        let compIdx = componentIndex comp
-            dcTree = dcHuffmanTree comp
-            acTree = acHuffmanTree comp
-            qTable = quants V.! (min 1 compIdx)
-            xd = blockMcuX comp
-            yd = blockMcuY comp
-            (subX, subY) = subSampling comp
-        dc <- lift $ dcArray `M.unsafeRead` compIdx
-        (dcCoeff, block) <-
-              decompressMacroBlock dcTree acTree qTable zigZagArray $ fromIntegral dc
-        lift $ (dcArray `M.unsafeWrite` compIdx) dcCoeff
-        let verticalLimited   = y == imageMcuHeight - 1
-            horizontalLimited = x == imageMcuWidth - 1
-        if horizontalLimited || verticalLimited then
-          lift $ unpackMacroBlock imgComponentCount
-                                  subX subY compIdx
-                                  (x * maxiW + xd) (y * maxiH + yd) outImage block
-        else
-          lift $ unpack compIdx (x * maxiW + xd) (y * maxiH + yd) outImage block
-
-  where imgComponentCount = length $ jpgComponents frame
-
-        imgWidth = fromIntegral $ jpgWidth frame
-        imgHeight = fromIntegral $ jpgHeight frame
-        restartIntervalValue = case lst of
-                ((p,_):_,_): _ -> restartInterval p
-                _ -> -1
-
 gatherImageKind :: [JpgFrame] -> Maybe JpgImageKind
 gatherImageKind lst = case [k | JpgScans k _ <- lst, isDctSpecifier k] of
     [JpgBaselineDCTHuffman] -> Just BaseLineDCT
@@ -433,68 +369,161 @@ gatherImageKind lst = case [k | JpgScans k _ <- lst, isDctSpecifier k] of
 gatherScanInfo :: JpgImage -> (JpgFrameKind, JpgFrameHeader)
 gatherScanInfo img = head [(a, b) | JpgScans a b <- jpgFrame img]
 
--- | Try to decompress a jpeg file and decompress. The colorspace is still
--- YCbCr if you want to perform computation on the luma part. You can
--- convert it to RGB using 'convertImage' from the 'ColorSpaceConvertible'
--- typeclass.
---
--- This function can output the following pixel types :
---
---    * PixelYCbCr8
---
+unpackerDecision :: Int -> (Int, Int) -> Unpacker s
+unpackerDecision 1 (1, 1) = unpack444Y
+unpackerDecision _ (1, 1) = unpack444Ycbcr
+unpackerDecision _ (2, 1) = unpack421Ycbcr
+unpackerDecision compCount (xScalingFactor, yScalingFactor) =
+    unpackMacroBlock compCount xScalingFactor yScalingFactor
+
+-- -- | Try to decompress a jpeg file and decompress. The colorspace is still
+-- -- YCbCr if you want to perform computation on the luma part. You can
+-- -- convert it to RGB using 'convertImage' from the 'ColorSpaceConvertible'
+-- -- typeclass.
+-- --
+-- -- This function can output the following pixel types :
+-- --
+-- --    * PixelYCbCr8
+-- --
+-- decodeJpeg :: B.ByteString -> Either String DynamicImage
+-- decodeJpeg file = case runGetStrict get file of
+--   Left err -> Left err
+--   Right img -> case (compCount, imgKind) of
+--                  (_, Nothing) -> Left "Unknown Jpg kind"
+--                  (3, Just BaseLineDCT) -> Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
+--                  _ -> Left "Wrong component count"
+-- 
+--       where compCount = length $ jpgComponents scanInfo
+--             (_,scanInfo) = gatherScanInfo img
+-- 
+--             imgKind = gatherImageKind $ jpgFrame img
+--             imgWidth = fromIntegral $ jpgWidth scanInfo
+--             imgHeight = fromIntegral $ jpgHeight scanInfo
+-- 
+--             imageSize = imgWidth * imgHeight * compCount
+--             (st, wrotten) = execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
+--             Just fHdr = currentFrame st
+-- 
+--             pixelData = runST $ do
+--                 resultImage <- M.new imageSize
+--                 let wrapped = MutableImage imgWidth imgHeight resultImage
+--                 decodeImage 
+--                     fHdr
+--                     (quantizationMatrices st)
+--                     wrotten
+--                     wrapped
+--                 VS.unsafeFreeze resultImage
+-- 
+-- decodeImage :: JpgFrameHeader
+--             -> V.Vector (MacroBlock Int16)
+--             -> [([(JpgUnpackerParameter, Unpacker s)], L.ByteString)]
+--             -> MutableImage s PixelYCbCr8 -- ^ Result image to write into
+--             -> ST s ()
+-- decodeImage frame quants lst outImage = do
+--   let compCount = length $ jpgComponents frame
+--   zigZagArray <- createEmptyMutableMacroBlock
+--   dcArray <- M.replicate compCount 0  :: ST s (M.STVector s DcCoefficient)
+--   resetCounter <- newSTRef restartIntervalValue
+-- 
+--   forM_ lst $ \(params, str) -> do
+--     let componentsInfo = V.fromList params
+--         compReader = initBoolStateJpg . B.concat $ L.toChunks str
+--         maxiW = maximum [fst $ subSampling c | (c,_) <- params]
+--         maxiH = maximum [snd $ subSampling c | (c,_) <- params]
+--         mcuBlockWidth = maxiW * dctBlockSize
+--         mcuBlockHeight = maxiH * dctBlockSize
+--         imageMcuWidth = (imgWidth + mcuBlockWidth - 1) `div` mcuBlockWidth
+--         imageMcuHeight = (imgHeight + mcuBlockHeight - 1) `div` mcuBlockHeight 
+-- 
+--     execBoolReader compReader $ rasterMap imageMcuWidth imageMcuHeight $ \x y -> do
+--       resetLeft <- lift $ readSTRef resetCounter
+--       if resetLeft == 0 then do
+--         lift $ M.set dcArray 0
+--         byteAlignJpg
+--         _restartCode <- decodeRestartInterval
+--         lift $ resetCounter `writeSTRef` (restartIntervalValue - 1)
+--       else
+--         lift $ resetCounter `writeSTRef` (resetLeft - 1)
+-- 
+--       V.forM_ componentsInfo $ \(comp, unpack) -> do
+--         let compIdx = componentIndex comp
+--             dcTree = dcHuffmanTree comp
+--             acTree = acHuffmanTree comp
+--             qTable = quants V.! min 1 compIdx
+--             xd = blockMcuX comp
+--             yd = blockMcuY comp
+--             (subX, subY) = subSampling comp
+-- --         traceShow acTree $ return ()
+-- --         traceShow qTable $ return ()
+-- --         traceShow (imageMcuWidth, imageMcuHeight) $ return ()
+--         dc <- lift $ dcArray `M.unsafeRead` compIdx
+--         (dcCoeff, block) <-
+--               decompressMacroBlock dcTree acTree qTable zigZagArray $ fromIntegral dc
+--         lift $ (dcArray `M.unsafeWrite` compIdx) dcCoeff
+--         let verticalLimited   = y == imageMcuHeight - 1
+--             horizontalLimited = x == imageMcuWidth - 1
+--         lift $ if horizontalLimited || verticalLimited then
+--                   unpackMacroBlock imgComponentCount
+--                                    subX subY compIdx
+--                                    (x * maxiW + xd) (y * maxiH + yd) outImage block
+--                else unpack compIdx (x * maxiW + xd) (y * maxiH + yd) outImage block
+-- 
+--   where imgComponentCount = length $ jpgComponents frame
+--         imgWidth = fromIntegral $ jpgWidth frame
+--         imgHeight = fromIntegral $ jpgHeight frame
+--         restartIntervalValue = case lst of
+--                 ((p,_):_,_): _ -> restartInterval p
+--                 _ -> -1
+
 decodeJpeg :: B.ByteString -> Either String DynamicImage
-decodeJpeg file = case runGetStrict get file of
-  Left err -> Left err
-  Right img -> case (compCount, imgKind) of
-                 (_, Nothing) -> Left "Unknown Jpg kind"
-                 (3, Just BaseLineDCT) -> Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
-                 _ -> Left "Wrong component count"
+decodeJpeg file = do
+        (env, rest) <- parseHeader file
+        let spec = getImageSpec env
+            (iWidth, iHeight) = imgSize_ spec
+            compCount = compCount_ spec
+            imgSize = iWidth * iHeight * compCount
 
-      where compCount = length $ jpgComponents scanInfo
-            (_,scanInfo) = gatherScanInfo img
-
-            imgKind = gatherImageKind $ jpgFrame img
-            imgWidth = fromIntegral $ jpgWidth scanInfo
-            imgHeight = fromIntegral $ jpgHeight scanInfo
-
-            imageSize = imgWidth * imgHeight * compCount
-            (st, wrotten) = execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
-            Just fHdr = currentFrame st
-
+            pixelData :: VS.Vector Word8
             pixelData = runST $ do
-                resultImage <- M.new imageSize
-                let wrapped = MutableImage imgWidth imgHeight resultImage
-                decodeImage 
-                    fHdr
-                    (quantizationMatrices st)
-                    wrotten
-                    wrapped
+                resultImage <- M.new imgSize
+                let wrappedImg = MutableImage iWidth iHeight resultImage
+                decodeImage spec rest wrappedImg
                 VS.unsafeFreeze resultImage
 
-decodeJpeg' :: B.ByteString -> Either String DynamicImage
-decodeJpeg' file = Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
-    where (Right (env, rest)) = parseHeader file
-          (_, spec) = getMCUSpec env
-          imgWidth = undefined
-          imgHeight = undefined
-          compCount = undefined
-          imgSize = imgWidth * imgHeight * compCount
+        return . ImageYCbCr8 $ Image iWidth iHeight pixelData
 
-          decodeImage' :: MCUSpec
-                       -> MutableImage s PixelYCbCr8
-                       -> ST s ()
-          decodeImage' = undefined
+decodeImage :: ImageSpec
+             -> B.ByteString
+             -> MutableImage s PixelYCbCr8
+             -> ST s ()
+-- decodeImage = undefined
+decodeImage spec codedData outImage = do
+    let (ImageSpec compCount _
+                   (iMcuWidth, iMcuHeight)
+                   (maxXsf, maxYsf)
+                   mcuSpec) = spec
 
-          pixelData :: VS.Vector Word8
-          pixelData = runST $ do
-              resultImage <- M.new imgSize
-              let wrappedImg = MutableImage imgWidth imgHeight resultImage
-              decodeImage' spec wrappedImg
-              VS.unsafeFreeze resultImage
+        imgReader = initBoolStateJpg codedData
 
+    (zigZagArray :: MutableMacroBlock s Int16) <- createEmptyMutableMacroBlock
+    dcArray <- M.replicate compCount 0 :: ST s (M.STVector s DcCoefficient)
+
+    void $ execBoolReader imgReader $ rasterMap iMcuWidth iMcuHeight $ \x y ->
+        forM_ mcuSpec $ \(CompMCUSpec compIdx
+                            (duWidth, duHeight)
+                            (subX, subY)
+                            (DataUnitSpec qTable dcTree acTree)) ->
+            rasterMap duWidth duHeight $ \xd yd -> do
+                dcprev <- lift $ dcArray `M.unsafeRead` compIdx
+                (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable
+                                                         zigZagArray dcprev
+                lift $ (dcArray `M.unsafeWrite` compIdx) dcCoeff
+                lift $ unpackMacroBlock compCount subX subY compIdx
+                                        (x * maxXsf + xd) (y * maxYsf + yd)
+                                        outImage block
 
 extractBlock :: Image PixelYCbCr8       -- ^ Source image
-             -> MutableMacroBlock s Int16      -- ^ Mutable block where to put extracted block
+             -> MutableMacroBlock s Int16 -- ^ Mutable block where to put extracted block
              -> Int                     -- ^ Plane
              -> Int                     -- ^ X sampling factor
              -> Int                     -- ^ Y sampling factor
@@ -537,9 +566,9 @@ serializeMacroBlock :: BoolWriteStateRef s
                     -> MutableMacroBlock s Int32
                     -> ST s ()
 serializeMacroBlock !st !dcCode !acCode !blk =
- (blk `M.unsafeRead` 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
+ void $ (blk `M.unsafeRead` 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1)
   where writeAcs acc@(_, 63) =
-            (blk `M.unsafeRead` 63) >>= (fromIntegral >>> encodeAcCoefs acc) >> return ()
+            void $ (blk `M.unsafeRead` 63) >>= (fromIntegral >>> encodeAcCoefs acc)
         writeAcs acc@(_, i ) =
             (blk `M.unsafeRead`  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
 
@@ -722,8 +751,8 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = en
                                   let blockY = my * sizeY + subY
                                       blockX = mx * sizeX + subX
                                   prev_dc <- dc_table `M.unsafeRead` comp
-                                  (dc_coeff, neo_block) <- (extractor comp blockX blockY >>=
-                                                          encodeMacroBlock table workData zigzaged prev_dc)
+                                  (dc_coeff, neo_block) <- extractor comp blockX blockY >>=
+                                                           encodeMacroBlock table workData zigzaged prev_dc
                                   (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
                                   serializeMacroBlock writeState dc ac neo_block
 

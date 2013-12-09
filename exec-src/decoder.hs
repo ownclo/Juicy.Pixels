@@ -5,8 +5,8 @@ import Codec.Picture.Jpg( decodeJpeg )
 import System.Environment( getArgs )
 import Control.Applicative( (<$>) )
 
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString as B
 
 main :: IO ()
 main = do

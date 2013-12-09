@@ -15,10 +15,10 @@ import Control.Lens((.=), (%=))
 -- l %= f -> modify state with f
 
 import Data.Attoparsec.Number ()
-import Data.Attoparsec.Char8
-import Data.Char(ord)
+import Data.Attoparsec
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map as M
+import Data.Word( Word8 )
 
 type BS = B8.ByteString
 
@@ -31,19 +31,19 @@ data Marker = SOI -- start of input
             | DHT -- define huffman table
     deriving (Show, Eq)
 
-markerCodes :: [(Marker, Char)]
-markerCodes =  [(SOI, '\xD8')
-               ,(EOI, '\xD9')
-               ,(SOF, '\xC0')
-               ,(SOS, '\xDA')
-               ,(DQT, '\xDB')
-               ,(DHT, '\xC4')]
+markerCodes :: [(Marker, Word8)]
+markerCodes =  [(SOI, 0xD8)
+               ,(EOI, 0xD9)
+               ,(SOF, 0xC0)
+               ,(SOS, 0xDA)
+               ,(DQT, 0xDB)
+               ,(DHT, 0xC4)]
 
-knownMarkers :: String -- a.k.a [Char]
+knownMarkers :: [Word8]
 knownMarkers = map snd markerCodes
 
 -- fromJust is either safe, or it is pointless to continue.
-markerCode :: Marker -> Char
+markerCode :: Marker -> Word8
 markerCode = fromJust . (`lookup` markerCodes) -- that's safe, I guarantee it.
 
 
@@ -64,14 +64,11 @@ hClassFromIndex _ = ACHuff
 ---------------------------
 ---- PRIMITIVE PARSERS ----
 ---------------------------
-skip :: Int -> Parser ()
-skip = void . take
-
-theByte :: Char -> Parser ()
-theByte = void . char
+theByte :: Word8 -> Parser ()
+theByte = void . word8
 
 byteI :: Parser Int
-byteI = ord <$> anyChar
+byteI = fI <$> anyWord8
 
 byte :: Parser Byte
 byte = fI <$> byteI
@@ -94,11 +91,11 @@ nibbles = liftM byte2nibs byte
 
 marker :: Marker -> Parser ()
 marker m = void $ do
-        theByte '\xFF'
+        theByte 0xFF
         theByte $ markerCode m
 
-getMarker :: Parser Char
-getMarker = theByte '\xFF' >> anyChar
+getMarker :: Parser Word8
+getMarker = theByte 0xFF >> anyWord8
 
 
 ---------------------------
@@ -109,13 +106,13 @@ unknownSegment = do
         mark <- getMarker
         guard (mark `notElem` knownMarkers)
         len  <- wordI
-        skip $ len - 2 -- the length of 'len' (Word16) itself is included.
+        void . take $ len - 2 -- the length of 'len' (Word16) itself is included.
 
 quanTable :: Parser (Int, QTable)
 quanTable = do
         (p, id) <- nibbles
         qTable  <- 64 `count` (if p==0 then byteI else wordI)
-        return (fI id, qTable)
+        return (fI id, map fI qTable)
 
 -- NOTE: QTable consists of 64 quantization parameters.
 -- A QTable can be of 1- or 2-byte precision. Yet another byte
@@ -143,7 +140,7 @@ frameCompSpec = do
         id <- byte
         sf <- nibbles
         tq <- byte
-        return $ (fI id, FrameCompSpec id (toDim sf) tq)
+        return (fI id, FrameCompSpec id (toDim sf) tq)
 
 startOfFrame :: Parser FrameHeader
 startOfFrame = do
@@ -179,7 +176,7 @@ huffTableSegment = do
         _ <- word              -- length, unused
         (tc, th) <- nibbles    -- table class (ac | dc), table header (aka id)
         ls <- 16 `count` byteI -- number of huffman codes with given length
-        values <- mapM (`count` byteI) ls
+        values <- mapM (`count` byte) ls
 
         let hClass = hClassFromIndex tc
             id = fI th -- that was a bad name
@@ -206,7 +203,7 @@ huffTable = do
         let id = fI id'
         case hClass of
              DCHuff -> huffTables.dcTable %= M.insert id tree
-             ACHuff -> huffTables.acTable %= M.insert id (fmap byte2nibs tree)
+             ACHuff -> huffTables.acTable %= M.insert id tree
 
 frameDesc :: EnvParser ()
 frameDesc = (frameHeader .=) =<< lift startOfFrame
@@ -235,8 +232,8 @@ type EnvParser = StateT Env Parser
 
 parseEnv :: EnvParser a -> BS -> Either String (Env, BS)
 parseEnv f = toEither `o` parse $ runStateT f initialEnv
-    where toEither (Fail{})    = Left "Header parsing failure"
-          toEither (Partial _) = Left "Consumed all input while parsed header"
+    where toEither (Fail{})    = Left "Header parsing failure: unsupported format"
+          toEither (Partial _) = Left "Header parsing failure: partial result"
           toEither (Done r (_, env)) = Right (env, r)
 
           o = (.).(.) -- (g `o` h) x y = g (h x y)
