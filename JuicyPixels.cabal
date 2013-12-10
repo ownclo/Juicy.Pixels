@@ -61,6 +61,16 @@ Executable jpgDecoder
                  base,
                  bytestring
 
+Executable jpgEncoder
+  Default-Language: Haskell2010
+  Hs-Source-Dirs: exec-src
+  Main-Is: encoder.hs
+  Ghc-options: -O3 -Wall
+  Build-depends: JuicyPixels,
+                 base,
+                 bytestring
+
+
 Library
   Default-Language: Haskell2010
   Exposed-modules:  Codec.Picture,
