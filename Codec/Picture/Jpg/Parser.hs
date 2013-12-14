@@ -68,16 +68,18 @@ unknownSegment = do
         len  <- wordI
         void . take $ len - 2 -- the length of 'len' (Word16) itself is included.
 
-quanTable :: Parser (Int, QTable)
+quanTable :: Parser (Int, QTableSpec)
 quanTable = do
         (p, id) <- nibbles
         qTable  <- 64 `count` (if p==0 then byteI else wordI)
-        return (fI id, map fI qTable)
+        let id' = fI id
+            qspec = QTableSpec id' p (map fI qTable)
+        return (id', qspec)
 
 -- NOTE: QTable consists of 64 quantization parameters.
 -- A QTable can be of 1- or 2-byte precision. Yet another byte
 -- precedes q-values. That byte indicates the type of precision
--- and the index of QTable (see parseQuanTable). So, the size
+-- and the index of QTable (see quanTable). So, the size
 -- of each table is 1 + (1|2)*64. How can we deduce the number
 -- of QTables given their accumulative length? As it can be
 -- seen, the number of extra bytes indicates this properly.
@@ -88,7 +90,7 @@ quanTable = do
 -- The last equation holds iff k < 64. We assume that this is
 -- the case for any image (not necessarily, but more than likely),
 -- because the index space of QTables is of 4 bit size.
-quanTablesSegment :: Parser [(Int, QTable)]
+quanTablesSegment :: Parser [(Int, QTableSpec)]
 quanTablesSegment = do
         marker DQT
         len <- wordI
@@ -158,12 +160,11 @@ quanTables = do
 
 huffTable :: EnvParser ()
 huffTable = do
-        HFS hClass id' ls values <- lift huffTableSegment
+        hfs@(HFS hClass id' _ values) <- lift huffTableSegment
         let id = fI id'
-            tree = buildHuffmanTree values
         case hClass of
-             DCHuff -> huffTables.dcTable %= M.insert id tree
-             ACHuff -> huffTables.acTable %= M.insert id tree
+             DCHuff -> huffTables.dcTable %= M.insert id hfs
+             ACHuff -> huffTables.acTable %= M.insert id hfs
 
 frameDesc :: EnvParser ()
 frameDesc = (frameHeader .=) =<< lift startOfFrame

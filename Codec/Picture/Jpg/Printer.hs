@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Codec.Picture.Jpg.Printer
-    ( printHeader
+    ( printImage
     ) where
 
 import Codec.Picture.Jpg.Env
@@ -21,7 +21,13 @@ import Data.Binary.Put( runPut
 type LS = L.ByteString
 type Printer a = a -> Put
 
+toList :: M.Map a b -> [b]
+toList = map snd . M.toList
+
 --- PRIMITIVE PRINTERS ---
+printRaw :: Printer LS
+printRaw = putLazyByteString
+
 byte :: Printer Byte
 byte = putWord8
 
@@ -44,12 +50,7 @@ marker m = do
 
 
 --- SEGMENT PRINTERS ---
-type TableList a = [a]
-data QTableSpec = QTableSpec {
-                _id :: !Int,
-                _precision :: !Byte,
-                _qTable :: QTable
-    }
+type TableList a = [a] -- juggling with type system.
 
 class SizeCalculable a where
     calculateSize :: a -> Int
@@ -75,7 +76,7 @@ quanTable :: Printer QTableSpec
 quanTable (QTableSpec id p qTable) = do
         nibbles (p, fI id)
         let coeff = if p == 0 then byteI else wordI
-        forM_ (fI <$> qTable) coeff
+        mapM_ coeff $ fI <$> qTable
 
 quanTablesSegment :: Printer (TableList QTableSpec)
 quanTablesSegment segment = do
@@ -97,8 +98,7 @@ startOfFrame fh@(FrameHeader (Dim y x) fcspecs) = do
         word y
         word x
         byteI $ M.size fcspecs
-        let fclist = map snd $ M.toList fcspecs
-        forM_ fclist frameCompSpec
+        mapM_ frameCompSpec $ toList fcspecs
 
 scanCompSpec :: Printer ScanCompSpec
 scanCompSpec (ScanCompSpec cs dct act) = do
@@ -110,28 +110,45 @@ startOfScan scanHeader = do
         marker SOS
         wordI $ calculateSize scanHeader
         byteI $ length scanHeader
-        forM_ scanHeader scanCompSpec
-        byte 0
+        mapM_ scanCompSpec scanHeader
+        byte 0  -- magic numbers. unused sequential mode
         byte 63
-        nibbles (0, 0) -- approximation parameter. unused in sequential mode
+        nibbles (0, 0)
 
 huffTableSegment :: Printer HuffmanSegment
 huffTableSegment hfs@(HFS hClass id lengths values) = do
         marker DHT
         wordI $ calculateSize hfs
         nibbles (indexFromHClass hClass, id)
-        forM_ lengths byteI
+        mapM_ byteI lengths
         forM_ values $ mapM_ byte
 
 
 --- ENVIRONMENT PRINTERS ---
--- quanTables :: Printer Env
--- quanTables (Env{_qTables=qs}) = do
---         forM_ qs quanTablesSegment
+quanTables :: Printer Env
+quanTables (Env{_qTables=qtables}) = quanTablesSegment $ toList qtables
+
+huffTable :: Printer Env
+huffTable (Env{_huffTables=(HuffTables dcT acT)}) = do
+        mapM_ huffTableSegment $ toList dcT
+        mapM_ huffTableSegment $ toList acT
+
+frameDesc :: Printer Env
+frameDesc (Env{_frameHeader=fh}) = startOfFrame fh
+
+scanDesc :: Printer Env
+scanDesc (Env{_scanHeader=sh}) = startOfScan sh
 
 printEnv :: Printer Env
-printEnv = undefined
+printEnv env = do
+        quanTables env
+        frameDesc  env
+        huffTable  env
+        scanDesc   env
 
-
-printHeader :: Env -> LS
-printHeader = runPut . printEnv
+printImage :: (Env, LS) -> LS
+printImage (env, contents) = runPut $ do
+        marker SOI
+        printEnv env
+        printRaw contents
+        marker EOI

@@ -6,7 +6,10 @@ module Codec.Picture.Jpg.EnvReader
     ) where
 
 import Codec.Picture.Jpg.Env
-import Codec.Picture.Jpg.Huffman( packHuffmanTree, HuffmanPackedTree )
+import Codec.Picture.Jpg.Huffman( packHuffmanTree
+                                , buildHuffmanTree
+                                , HuffmanPackedTree )
+
 import Codec.Picture.Jpg.Types( MacroBlock )
 
 import Control.Applicative
@@ -45,8 +48,8 @@ data FullCompSpec = FullCompSpec {
     } deriving Show
 
 getImageSpec :: Env -> ImageSpec
-getImageSpec (Env (HuffTables dcT acT)
-                  quanT
+getImageSpec (Env (HuffTables dcTS acTS)
+                  quanTS
                   (FrameHeader (Dim y x) frameCS)
                   scanH) = imageSpec where
 
@@ -81,9 +84,14 @@ getImageSpec (Env (HuffTables dcT acT)
         (subY, subX) = upSampFactor nd
         duSpec = DataUnitSpec qtable dctree actree
 
-        qtable = VS.fromListN 64 . fromJust $ M.lookup (fI qI) quanT
-        dctree = packHuffmanTree . fromJust $ M.lookup (fI dcI) dcT
-        actree = packHuffmanTree . fromJust $ M.lookup (fI acI) acT
+        qtable = VS.fromListN 64 . getQTable . fromJust $ M.lookup (fI qI) quanTS
+        dctree = prepareHuffTree . _values   . fromJust $ M.lookup (fI dcI) dcTS
+        actree = prepareHuffTree . _values   . fromJust $ M.lookup (fI acI) acTS
+
+    -- '_qTable' is multipely defined. That's ugly, why can't the compiler
+    -- deduce the right accessor from types?
+    getQTable (QTableSpec _ _ q) = q
+    prepareHuffTree = packHuffmanTree . buildHuffmanTree
 
 getMaxSampFactors :: [FullCompSpec] -> (Int, Int)
 getMaxSampFactors fullCompSpecs = (maxYsf, maxXsf) where
