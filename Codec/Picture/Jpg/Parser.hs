@@ -8,7 +8,6 @@ import Codec.Picture.Jpg.Huffman(buildHuffmanTree)
 import Control.Applicative
 import Control.Monad.State
 import Prelude hiding(take, id)
-import Data.Maybe(fromJust)
 
 import Control.Lens((.=), (%=))
 -- l .= v -> substitute state with v;
@@ -21,45 +20,6 @@ import qualified Data.Map as M
 import Data.Word( Word8 )
 
 type BS = B8.ByteString
-
--- supported markers
-data Marker = SOI -- start of input
-            | EOI -- end of input
-            | SOF -- start of frame
-            | SOS -- start of scan
-            | DQT -- define quantization table
-            | DHT -- define huffman table
-    deriving (Show, Eq)
-
-markerCodes :: [(Marker, Word8)]
-markerCodes =  [(SOI, 0xD8)
-               ,(EOI, 0xD9)
-               ,(SOF, 0xC0)
-               ,(SOS, 0xDA)
-               ,(DQT, 0xDB)
-               ,(DHT, 0xC4)]
-
-knownMarkers :: [Word8]
-knownMarkers = map snd markerCodes
-
--- fromJust is either safe, or it is pointless to continue.
-markerCode :: Marker -> Word8
-markerCode = fromJust . (`lookup` markerCodes) -- that's safe, I guarantee it.
-
-
----------------------------
----- MISC FUNCTIONS -------
----------------------------
-byte2nibs :: (Integral a) => a -> (a, a)
-byte2nibs = (`divMod` 16)
-
-fI :: (Integral a, Num b) => a -> b
-fI = fromIntegral
-
-hClassFromIndex :: Byte -> HClass
-hClassFromIndex 0 = DCHuff
-hClassFromIndex _ = ACHuff
-
 
 ---------------------------
 ---- PRIMITIVE PARSERS ----
@@ -180,9 +140,8 @@ huffTableSegment = do
 
         let hClass = hClassFromIndex tc
             id = fI th -- that was a bad name
-            tree = buildHuffmanTree values
 
-        return $ HFS hClass id tree
+        return $ HFS hClass id ls values
 
 
 ---------------------------
@@ -199,8 +158,9 @@ quanTables = do
 
 huffTable :: EnvParser ()
 huffTable = do
-        HFS hClass id' tree <- lift huffTableSegment
+        HFS hClass id' ls values <- lift huffTableSegment
         let id = fI id'
+            tree = buildHuffmanTree values
         case hClass of
              DCHuff -> huffTables.dcTable %= M.insert id tree
              ACHuff -> huffTables.acTable %= M.insert id tree

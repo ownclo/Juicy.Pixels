@@ -239,7 +239,8 @@ data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     deriving Show
 
 instance SizeCalculable JpgHuffmanTableSpec where
-    calculateSize table = 1 + 16 + sum [fromIntegral e | e <- VU.toList $ huffSizes table]
+    calculateSize table = 1 + 16 +
+        sum [fromIntegral e | e <- VU.toList $ huffSizes table]
 
 instance Binary JpgHuffmanTableSpec where
     put table = do

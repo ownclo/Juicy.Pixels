@@ -176,8 +176,8 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
             where xBase = blockXBegin + x * sampWidth
                   yBase = blockYBegin + y * sampHeight
 
-        blockXBegin = bx * dctBlockSize * sampWidth
-        blockYBegin = by * dctBlockSize * sampHeight
+                  blockXBegin = bx * dctBlockSize * sampWidth
+                  blockYBegin = by * dctBlockSize * sampHeight
 
     sequence_ [(block `M.unsafeWrite` (y * dctBlockSize + x)) $ blockVal x y | y <- [0 .. 7], x <- [0 .. 7] ]
     return block

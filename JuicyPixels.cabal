@@ -108,6 +108,7 @@ Library
                  Codec.Picture.Jpg.Huffman,
                  Codec.Picture.Jpg.Env,
                  Codec.Picture.Jpg.Parser,
+                 Codec.Picture.Jpg.Printer,
                  Codec.Picture.Jpg.EnvReader
 
   Include-Dirs: Codec/Picture

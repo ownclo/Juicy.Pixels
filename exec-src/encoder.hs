@@ -1,5 +1,4 @@
 import Codec.Picture.Saving
-import Codec.Picture.Jpg( encodeJpeg )
 import Codec.Picture.Bitmap( decodeBitmap )
 
 import System.Environment( getArgs )

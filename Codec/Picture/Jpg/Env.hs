@@ -6,6 +6,8 @@ module Codec.Picture.Jpg.Env where
 
 import Codec.Picture.Jpg.Huffman(HuffmanTree)
 
+import Data.Bits( Bits, unsafeShiftL, (.|.) )
+import Data.Maybe(fromJust)
 import Data.Word(Word8, Word16)
 import qualified Data.Map as M
 import Control.Lens(makeLenses)
@@ -20,7 +22,53 @@ type Run = Int
 
 data HClass = ACHuff | DCHuff deriving Show
 
-type QTable = [Int16] --- XXX: Temporary!
+type QTable = [Int16]
+
+---------------------------
+---- MISC FUNCTIONS -------
+---------------------------
+byte2nibs :: (Integral a) => a -> (a, a)
+byte2nibs = (`divMod` 16)
+
+nibs2byte :: (Bits a) => (a, a) -> a
+nibs2byte (a, b) = (a `unsafeShiftL` 4) .|. b
+
+fI :: (Integral a, Num b) => a -> b
+fI = fromIntegral
+
+hClassFromIndex :: Byte -> HClass
+hClassFromIndex 0 = DCHuff
+hClassFromIndex _ = ACHuff
+
+indexFromHClass :: HClass -> Byte
+indexFromHClass DCHuff = 0
+indexFromHClass ACHuff = 1
+
+
+-- supported markers
+data Marker = SOI -- start of input
+            | EOI -- end of input
+            | SOF -- start of frame
+            | SOS -- start of scan
+            | DQT -- define quantization table
+            | DHT -- define huffman table
+    deriving (Show, Eq)
+
+markerCodes :: [(Marker, Word8)]
+markerCodes =  [(SOI, 0xD8)
+               ,(EOI, 0xD9)
+               ,(SOF, 0xC0)
+               ,(SOS, 0xDA)
+               ,(DQT, 0xDB)
+               ,(DHT, 0xC4)]
+
+knownMarkers :: [Word8]
+knownMarkers = map snd markerCodes
+
+-- fromJust is either safe, or it is pointless to continue.
+markerCode :: Marker -> Word8
+markerCode = fromJust . (`lookup` markerCodes) -- that's safe, I guarantee it.
+
 
 data Dim a = Dim {
            _y, _x :: !a
@@ -28,6 +76,9 @@ data Dim a = Dim {
 
 toDim :: (a, a) -> Dim a
 toDim (!y, !x) = Dim y x
+
+fromDim :: Dim a -> (a, a)
+fromDim (Dim !y !x) = (y, x)
 
 getY, getX :: Dim a -> a
 getY (Dim y _) = y
@@ -56,7 +107,8 @@ type ScanHeader = [ScanCompSpec]
 data HuffmanSegment = HFS {
             _type    :: !HClass,              -- AC or DC table
             _tableId :: {-# UNPACK #-} !Byte, -- id of a table (see _dcId)
-            _tree    :: HuffmanTree
+            _lengths :: [Int],
+            _values  :: [[Word8]]
     } deriving Show
 
 data HuffTables = HuffTables { -- retrieves a huffman tree given its type and id.
