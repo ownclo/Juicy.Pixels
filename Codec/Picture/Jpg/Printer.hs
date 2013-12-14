@@ -10,7 +10,6 @@ import Control.Applicative( (<$>) )
 import Control.Monad( forM_ )
 import qualified Data.Map as M
 import qualified Data.ByteString.Lazy as L
-import Data.Word( Word8, Word16 )
 import Data.Binary.Put( runPut
                       , Put
                       , putWord8
@@ -63,7 +62,7 @@ instance SizeCalculable (TableList QTableSpec) where
         calculateSize tlist = 2 + sum (calculateSize <$> tlist)
 
 instance SizeCalculable FrameHeader where
-        calculateSize (FrameHeader size fcspecs) = 2 + 1 + 2 + 2 + 1 +
+        calculateSize (FrameHeader _ fcspecs) = 2 + 1 + 2 + 2 + 1 +
             M.size fcspecs * 3
 
 instance SizeCalculable ScanHeader where
@@ -73,8 +72,8 @@ instance SizeCalculable HuffmanSegment where
         calculateSize (HFS{_lengths = ls}) = 1 + 16 + sum ls
 
 quanTable :: Printer QTableSpec
-quanTable (QTableSpec id p qTable) = do
-        nibbles (p, fI id)
+quanTable (QTableSpec id' p qTable) = do
+        nibbles (p, fI id')
         let coeff = if p == 0 then byteI else wordI
         mapM_ coeff $ fI <$> qTable
 
@@ -85,8 +84,8 @@ quanTablesSegment segment = do
         sequence_ $ quanTable <$> segment
 
 frameCompSpec :: Printer FrameCompSpec
-frameCompSpec (FrameCompSpec id sf tq) = do
-        byte id
+frameCompSpec (FrameCompSpec id' sf tq) = do
+        byte id'
         nibbles $ fromDim sf
         byte tq
 
@@ -106,20 +105,20 @@ scanCompSpec (ScanCompSpec cs dct act) = do
         nibbles (dct, act)
 
 startOfScan :: Printer ScanHeader
-startOfScan scanHeader = do
+startOfScan sHeader = do
         marker SOS
-        wordI $ calculateSize scanHeader
-        byteI $ length scanHeader
-        mapM_ scanCompSpec scanHeader
+        wordI $ calculateSize sHeader
+        byteI $ length sHeader
+        mapM_ scanCompSpec sHeader
         byte 0  -- magic numbers. unused sequential mode
         byte 63
         nibbles (0, 0)
 
 huffTableSegment :: Printer HuffmanSegment
-huffTableSegment hfs@(HFS hClass id lengths values) = do
+huffTableSegment hfs@(HFS hClass id' lengths values) = do
         marker DHT
         wordI $ calculateSize hfs
-        nibbles (indexFromHClass hClass, id)
+        nibbles (indexFromHClass hClass, id')
         mapM_ byteI lengths
         forM_ values $ mapM_ byte
 

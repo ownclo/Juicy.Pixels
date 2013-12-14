@@ -3,7 +3,6 @@ module Codec.Picture.Jpg.Parser
     ) where
 
 import Codec.Picture.Jpg.Env
-import Codec.Picture.Jpg.Huffman(buildHuffmanTree)
 
 import Control.Applicative
 import Control.Monad.State
@@ -160,11 +159,10 @@ quanTables = do
 
 huffTable :: EnvParser ()
 huffTable = do
-        hfs@(HFS hClass id' _ values) <- lift huffTableSegment
-        let id = fI id'
+        hfs@(HFS hClass id' _ _) <- lift huffTableSegment
         case hClass of
-             DCHuff -> huffTables.dcTable %= M.insert id hfs
-             ACHuff -> huffTables.acTable %= M.insert id hfs
+             DCHuff -> huffTables.dcTable %= M.insert (fI id') hfs
+             ACHuff -> huffTables.acTable %= M.insert (fI id') hfs
 
 frameDesc :: EnvParser ()
 frameDesc = (frameHeader .=) =<< lift startOfFrame

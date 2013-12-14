@@ -4,8 +4,6 @@
 
 module Codec.Picture.Jpg.Env where
 
-import Codec.Picture.Jpg.Huffman(HuffmanTree)
-
 import Data.Bits( Bits, unsafeShiftL, (.|.) )
 import Data.Maybe(fromJust)
 import Data.Word(Word8, Word16)
