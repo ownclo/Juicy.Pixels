@@ -10,7 +10,6 @@ module Codec.Picture.Jpg( decodeJpeg
                         , encodeJpeg
                         ) where
 
-import Control.Arrow( (>>>) )
 import Control.Applicative( (<$>) )
 import Control.Monad( when, forM_, void )
 import Control.Monad.ST( ST, runST )
@@ -187,11 +186,9 @@ serializeMacroBlock :: BoolWriteStateRef s
                     -> MutableMacroBlock s Int32
                     -> ST s ()
 serializeMacroBlock !st !dcCode !acCode !blk =
- void $ (blk `M.unsafeRead` 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1)
-  where writeAcs acc@(_, 63) =
-            void $ (blk `M.unsafeRead` 63) >>= (fromIntegral >>> encodeAcCoefs acc)
-        writeAcs acc@(_, i ) =
-            (blk `M.unsafeRead`  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
+ void $ (blk `M.unsafeRead` 0) >>= encodeDc >> writeAcs (0, 1)
+  where writeAcs acc@(_, 63) = void $ (blk `M.unsafeRead` 63) >>= encodeAcCoefs acc
+        writeAcs acc@(_, i ) = (blk `M.unsafeRead`  i) >>= encodeAcCoefs acc >>= writeAcs
 
         encodeDc n = writeBits' st (fromIntegral code) (fromIntegral bitCount)
                         >> when (ssss /= 0) (encodeInt st ssss n)
