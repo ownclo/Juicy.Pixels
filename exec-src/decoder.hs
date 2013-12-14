@@ -13,5 +13,6 @@ main = do
     [inJPG, outBMP] <- getArgs
     jpgData <- B.readFile inJPG
 
-    let (Right bmpData) = imageToBitmap <$> decodeJpeg jpgData
-    L.writeFile outBMP bmpData
+    case imageToBitmap <$> decodeJpeg jpgData of
+        Left err -> putStrLn err
+        Right bmpData -> L.writeFile outBMP bmpData
