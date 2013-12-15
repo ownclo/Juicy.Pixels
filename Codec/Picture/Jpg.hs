@@ -255,7 +255,7 @@ defaultHuffTables = HuffTables {
                  ,_values = defaultAcLumaHuffmanTable
                  })
         ,(1, HFS {_type = ACHuff
-                 ,_tableId = 0
+                 ,_tableId = 1
                  ,_lengths = map length defaultAcChromaHuffmanTable
                  ,_values = defaultAcChromaHuffmanTable
                  })
