@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE BangPatterns #-}
 module Codec.Picture.Jpg.Printer
     ( printImage
     ) where
@@ -110,7 +111,7 @@ startOfScan sHeader = do
         wordI $ calculateSize sHeader
         byteI $ length sHeader
         mapM_ scanCompSpec sHeader
-        byte 0  -- magic numbers. unused sequential mode
+        byte 0  -- magic numbers. unused in sequential mode
         byte 63
         nibbles (0, 0)
 
@@ -145,8 +146,8 @@ printEnv env = do
         huffTable  env
         scanDesc   env
 
-printImage :: (Env, LS) -> LS
-printImage (env, contents) = runPut $ do
+printImage :: Env -> LS -> LS
+printImage !env contents = runPut $ do
         marker SOI
         printEnv env
         printRaw contents

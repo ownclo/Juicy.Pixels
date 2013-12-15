@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 module Codec.Picture.Jpg.Common
     ( DctCoefficients
+    , ceilDiv
     , JpgUnpackerParameter( .. )
     , decodeInt
     , dcCoefficientDecode
@@ -56,6 +57,9 @@ data JpgUnpackerParameter = JpgUnpackerParameter
     , blockMcuY            :: {-# UNPACK #-} !Int
     }
     deriving Show
+
+ceilDiv :: Int -> Int -> Int
+ceilDiv n d = (n+d-1)`div`d
 
 decodeRestartInterval :: BoolReader s Int32
 decodeRestartInterval = return (-1) {-  do

@@ -6,14 +6,13 @@ module Codec.Picture.Jpg.EnvReader
     ) where
 
 import Codec.Picture.Jpg.Env
-import Codec.Picture.Jpg.Huffman( packHuffmanTree
-                                , buildHuffmanTree
+import Codec.Picture.Jpg.Huffman( prepareHuffTree
                                 , HuffmanPackedTree )
 
 import Codec.Picture.Jpg.Types( MacroBlock )
+import Codec.Picture.Jpg.Common( ceilDiv )
 
 import Control.Applicative
-
 import qualified Data.Map as M
 import Data.Maybe(fromJust)
 import qualified Data.Vector.Storable as VS
@@ -37,7 +36,7 @@ data CompMCUSpec = CompMCUSpec {
 -- Everything that is needed in order to
 -- decode particular Data Unit.
 data DataUnitSpec = DataUnitSpec {
-            _qTable :: !(MacroBlock Int16),
+            _qtable :: !(MacroBlock Int16),
             _dcTree :: !HuffmanPackedTree,
             _acTree :: !HuffmanPackedTree
     } deriving Show
@@ -84,14 +83,9 @@ getImageSpec (Env (HuffTables dcTS acTS)
         (subY, subX) = upSampFactor nd
         duSpec = DataUnitSpec qtable dctree actree
 
-        qtable = VS.fromListN 64 . getQTable . fromJust $ M.lookup (fI qI) quanTS
+        qtable = VS.fromListN 64 . _qTable . fromJust $ M.lookup (fI qI) quanTS
         dctree = prepareHuffTree . _values   . fromJust $ M.lookup (fI dcI) dcTS
         actree = prepareHuffTree . _values   . fromJust $ M.lookup (fI acI) acTS
-
-    -- '_qTable' is multipely defined. That's ugly, why can't the compiler
-    -- deduce the right accessor from types?
-    getQTable (QTableSpec _ _ q) = q
-    prepareHuffTree = packHuffmanTree . buildHuffmanTree
 
 getMaxSampFactors :: [FullCompSpec] -> (Int, Int)
 getMaxSampFactors fullCompSpecs = (maxYsf, maxXsf) where
@@ -104,7 +98,3 @@ zipById tfcs = map addFcs where
     addFcs sc = case M.lookup (fromIntegral $ _scId sc) tfcs of
                     Nothing -> error "Frame header corrupted. Aborting."
                     Just fc -> FullCompSpec fc sc
-
--- helpers --
-ceilDiv :: Int -> Int -> Int
-ceilDiv n d = (n+d-1)`div`d

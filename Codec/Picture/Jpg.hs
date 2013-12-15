@@ -18,11 +18,9 @@ import Control.Monad.Trans( lift )
 import Data.Bits( (.|.), unsafeShiftL )
 import Data.Int( Int16, Int32 )
 import Data.Word(Word8, Word32)
-import Data.Binary( encode )
+import qualified Data.Map as M
 
-import Data.Vector.Unboxed( (!) )
 import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.ByteString as B
@@ -37,6 +35,8 @@ import Codec.Picture.Jpg.FastDct
 import Codec.Picture.Jpg.Huffman
 
 import Codec.Picture.Jpg.Parser
+import Codec.Picture.Jpg.Printer
+import Codec.Picture.Jpg.Env
 import Codec.Picture.Jpg.EnvReader
 
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
@@ -228,155 +228,139 @@ encodeMacroBlock quantTableOfComponent workData finalData prev_dc block = do
  (blk `M.unsafeWrite` 0) $ dc - fromIntegral prev_dc
  return (dc, blk)
 
-divUpward :: (Integral a) => a -> a -> a
-divUpward n dividor = val + (if rest /= 0 then 1 else 0)
-    where (val, rest) = n `divMod` dividor
-
-prepareHuffmanTable :: DctComponent -> Word8 -> HuffmanTable
-                    -> (JpgHuffmanTableSpec, HuffmanPackedTree)
-prepareHuffmanTable classVal dest tableDef =
-   (JpgHuffmanTableSpec { huffmanTableClass = classVal
-                        , huffmanTableDest  = dest
-                        , huffSizes = sizes
-                        , huffCodes = V.fromListN 16
-                            [VU.fromListN (fromIntegral $ sizes ! i) lst
-                                                | (i, lst) <- zip [0..] tableDef ]
-                        }, VS.singleton 0)
-      where sizes = VU.fromListN 16 $ map (fromIntegral . length) tableDef
-
 -- | Encode an image in jpeg at a reasonnable quality level.
 -- If you want better quality or reduced file size, you should
 -- use `encodeJpegAtQuality`
 encodeJpeg :: Image PixelYCbCr8 -> L.ByteString
 encodeJpeg = encodeJpegAtQuality 50
 
-defaultHuffmanTables :: [(JpgHuffmanTableSpec, HuffmanPackedTree)]
-defaultHuffmanTables =
-    [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
-    , prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
-    , prepareHuffmanTable DcComponent 1 defaultDcChromaHuffmanTable
-    , prepareHuffmanTable AcComponent 1 defaultAcChromaHuffmanTable
+defaultHuffTables :: HuffTables
+defaultHuffTables = HuffTables {
+    _dcTable = M.fromList
+        [(0, HFS {_type = DCHuff
+                 ,_tableId = 0
+                 ,_lengths = map length defaultDcLumaHuffmanTable
+                 ,_values = defaultDcLumaHuffmanTable
+                 })
+        ,(1, HFS {_type = DCHuff
+                 ,_tableId = 1
+                 ,_lengths = map length defaultDcChromaHuffmanTable
+                 ,_values = defaultDcChromaHuffmanTable
+                 })
+        ],
+    _acTable = M.fromList
+        [(0, HFS {_type = ACHuff
+                 ,_tableId = 0
+                 ,_lengths = map length defaultAcLumaHuffmanTable
+                 ,_values = defaultAcLumaHuffmanTable
+                 })
+        ,(1, HFS {_type = ACHuff
+                 ,_tableId = 0
+                 ,_lengths = map length defaultAcChromaHuffmanTable
+                 ,_values = defaultAcChromaHuffmanTable
+                 })
+        ]
+    }
+
+defaultFrameCompSpec :: Table FrameCompSpec
+defaultFrameCompSpec = M.fromList
+    [(1, FrameCompSpec {_compId = 1
+                       ,_sampF  = Dim 2 2
+                       ,_qTabI  = 0
+                       })
+    ,(2, FrameCompSpec {_compId = 2
+                       ,_sampF  = Dim 1 1
+                       ,_qTabI  = 1
+                       })
+    ,(3, FrameCompSpec {_compId = 3
+                       ,_sampF  = Dim 1 1
+                       ,_qTabI  = 1
+                       })
     ]
 
--- | Function to call to encode an image to jpeg.
--- The quality factor should be between 0 and 100 (100 being
--- the best quality).
-encodeJpegAtQuality :: Word8                -- ^ Quality factor
-                    -> Image PixelYCbCr8    -- ^ Image to encode
-                    -> L.ByteString         -- ^ Encoded JPEG
-encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = encode finalImage
-  where finalImage = JpgImage [ JpgQuantTable quantTables
-                              , JpgScans JpgBaselineDCTHuffman hdr
-                              , JpgHuffmanTable defaultHuffmanTables
-                              , JpgScanBlob scanHeader encodedImage
-                              ]
+defaultScanCompSpecs :: [ScanCompSpec]
+defaultScanCompSpecs =
+    [ScanCompSpec {_scId = 1
+                  ,_dcId = 0
+                  ,_acId = 0
+                  }
+    ,ScanCompSpec {_scId = 2
+                  ,_dcId = 1
+                  ,_acId = 1
+                  }
+    ,ScanCompSpec {_scId = 3
+                  ,_dcId = 1
+                  ,_acId = 1
+                  }
+    ]
 
-        outputComponentCount = 3
-
-        scanHeader = scanHeader'{ scanLength = fromIntegral $ calculateSize scanHeader' }
-        scanHeader' = JpgScanHeader
-            { scanLength = 0
-            , scanComponentCount = outputComponentCount
-            , scans = [ JpgScanSpecification { componentSelector = 1
-                                             , dcEntropyCodingTable = 0
-                                             , acEntropyCodingTable = 0
-                                             }
-                      , JpgScanSpecification { componentSelector = 2
-                                             , dcEntropyCodingTable = 1
-                                             , acEntropyCodingTable = 1
-                                             }
-                      , JpgScanSpecification { componentSelector = 3
-                                             , dcEntropyCodingTable = 1
-                                             , acEntropyCodingTable = 1
-                                             }
-                      ]
-
-            , spectralSelection = (0, 63)
-            , successiveApproxHigh = 0
-            , successiveApproxLow  = 0
-            }
-
-        hdr = hdr' { jpgFrameHeaderLength   = fromIntegral $ calculateSize hdr' }
-        hdr' = JpgFrameHeader { jpgFrameHeaderLength   = 0
-                              , jpgSamplePrecision     = 8
-                              , jpgHeight              = fromIntegral h
-                              , jpgWidth               = fromIntegral w
-                              , jpgImageComponentCount = outputComponentCount
-                              , jpgComponents          = [
-                                    JpgComponent { componentIdentifier      = 1
-                                                 , horizontalSamplingFactor = 2
-                                                 , verticalSamplingFactor   = 2
-                                                 , quantizationTableDest    = 0
-                                                 }
-                                  , JpgComponent { componentIdentifier      = 2
-                                                 , horizontalSamplingFactor = 1
-                                                 , verticalSamplingFactor   = 1
-                                                 , quantizationTableDest    = 1
-                                                 }
-                                  , JpgComponent { componentIdentifier      = 3
-                                                 , horizontalSamplingFactor = 1
-                                                 , verticalSamplingFactor   = 1
-                                                 , quantizationTableDest    = 1
-                                                 }
-                                  ]
-                              }
+encodeJpegAtQuality :: Word8
+                    -> Image PixelYCbCr8
+                    -> L.ByteString
+encodeJpegAtQuality quality
+                    img@(Image {imageWidth  = w,
+                                imageHeight = h}) = printImage env content
+  where env = Env {_huffTables = defaultHuffTables,
+                   _qTables = defaultQuantTables,
+                   _frameHeader = FrameHeader {_size = Dim (fI h) (fI w),
+                                               _fcs = defaultFrameCompSpec},
+                   _scanHeader = defaultScanCompSpecs}
 
         lumaQuant = scaleQuantisationMatrix (fromIntegral quality)
                         defaultLumaQuantizationTable
         chromaQuant = scaleQuantisationMatrix (fromIntegral quality)
-                            defaultChromaQuantizationTable
+                        defaultChromaQuantizationTable
 
         zigzagedLumaQuant = zigZagReorderForwardv lumaQuant
         zigzagedChromaQuant = zigZagReorderForwardv chromaQuant
-        quantTables = [ JpgQuantTableSpec { quantPrecision = 0, quantDestination = 0
-                                          , quantTable = zigzagedLumaQuant }
-                      , JpgQuantTableSpec { quantPrecision = 0, quantDestination = 1
-                                          , quantTable = zigzagedChromaQuant }
-                      ]
 
-        encodedImage = runST $ do
-            let horizontalMetaBlockCount =
-                    w `divUpward` (dctBlockSize * maxSampling)
-                verticalMetaBlockCount =
-                    h `divUpward` (dctBlockSize * maxSampling)
+        defaultQuantTables = M.fromList
+            [(0, QTableSpec {_id = 0
+                            ,_precision = 0
+                            ,_qTable = VS.toList zigzagedLumaQuant
+                            })
+            ,(1, QTableSpec {_id = 1
+                            ,_precision = 0
+                            ,_qTable = VS.toList zigzagedChromaQuant
+                            })
+            ]
+
+        content = runST $ do
+            let mcuWidth  = w `ceilDiv` (dctBlockSize * maxSampling)
+                mcuHeight = h `ceilDiv` (dctBlockSize * maxSampling)
                 maxSampling = 2
-                lumaSamplingSize = ( maxSampling, maxSampling, zigzagedLumaQuant
-                                   , makeInverseTable defaultDcLumaHuffmanTree
-                                   , makeInverseTable defaultAcLumaHuffmanTree)
-                chromaSamplingSize = ( maxSampling - 1, maxSampling - 1, zigzagedChromaQuant
-                                     , makeInverseTable defaultDcChromaHuffmanTree
-                                     , makeInverseTable defaultAcChromaHuffmanTree)
-                componentDef = [lumaSamplingSize, chromaSamplingSize, chromaSamplingSize]
+                lumaMCUSpec   = ( maxSampling, maxSampling, zigzagedLumaQuant
+                                , makeInverseTable defaultDcLumaHuffmanTree
+                                , makeInverseTable defaultAcLumaHuffmanTree )
+                chromaMCUSpec = ( maxSampling - 1, maxSampling - 1, zigzagedChromaQuant
+                                , makeInverseTable defaultDcChromaHuffmanTree
+                                , makeInverseTable defaultAcChromaHuffmanTree )
 
-                imageComponentCount = length componentDef
+                mcuSpec = zip [0..] [lumaMCUSpec, chromaMCUSpec, chromaMCUSpec]
+                numComp = length mcuSpec -- 3
 
-            dc_table <- M.replicate 3 0
-            block <- createEmptyMutableMacroBlock
+            dcCoeffs <- M.replicate numComp 0
+            block    <- createEmptyMutableMacroBlock
             workData <- createEmptyMutableMacroBlock
             zigzaged <- createEmptyMutableMacroBlock
             writeState <- newWriteStateRef
 
-            -- It's ugly, I know, be avoid allocation
-            let blockDecoder mx my = component $ zip [0..] componentDef
-                  where component [] = return ()
-                        component ((comp, (sizeX, sizeY, table, dc, ac)) : comp_rest) =
-                           rasterMap sizeX sizeY decoder >> component comp_rest
-                          where xSamplingFactor = maxSampling - sizeX + 1
-                                ySamplingFactor = maxSampling - sizeY + 1
-                                extractor = extractBlock img block xSamplingFactor ySamplingFactor imageComponentCount
+            let mcuEncoder mx my = compMcuEncoder mcuSpec
+                  where compMcuEncoder [] = return ()
+                        compMcuEncoder ((cIdx, (sampX, sampY, qTable, dcT, acT)) : rest) =
+                            rasterMap sampX sampY blockEncoder >> compMcuEncoder rest
+                          where xSamp = maxSampling - sampX + 1
+                                ySamp = maxSampling - sampY + 1
+                                extractor = extractBlock img block xSamp ySamp numComp
 
-                                decoder subX subY = do
-                                  let blockY = my * sizeY + subY
-                                      blockX = mx * sizeX + subX
-                                  prev_dc <- dc_table `M.unsafeRead` comp
-                                  (dc_coeff, neo_block) <- extractor comp blockX blockY >>=
-                                                           encodeMacroBlock table workData zigzaged prev_dc
-                                  (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
-                                  serializeMacroBlock writeState dc ac neo_block
+                                blockEncoder subX subY = do
+                                    let blockY = my * sampY + subY
+                                        blockX = mx * sampX + subX
+                                    prevDc <- dcCoeffs `M.unsafeRead` cIdx
+                                    (newDc, newBlock) <- extractor cIdx blockX blockY >>=
+                                                         encodeMacroBlock qTable workData zigzaged prevDc
+                                    dcCoeffs `M.unsafeWrite` cIdx $ fI newDc
+                                    serializeMacroBlock writeState dcT acT newBlock
 
-            rasterMap 
-                horizontalMetaBlockCount verticalMetaBlockCount
-                blockDecoder
-
+            rasterMap mcuWidth mcuHeight mcuEncoder
             finalizeBoolWriter writeState
-

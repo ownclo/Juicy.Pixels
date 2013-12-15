@@ -4,6 +4,7 @@ module Codec.Picture.Jpg.Huffman
     ( HuffmanTree(..) -- XXX: Do we need to isolate inner constructors?
     , DctComponent(..)
     , HuffmanPackedTree
+    , prepareHuffTree
     , packHuffmanTree
     , buildHuffmanTree
     ) where
@@ -42,6 +43,9 @@ build n = do
             else do x <- build (n+1)
                     y <- build (n+1)
                     return $ Branch x y
+
+prepareHuffTree :: [[Word8]] -> HuffmanPackedTree
+prepareHuffTree = packHuffmanTree . buildHuffmanTree
 
 buildHuffmanTree :: [[Word8]] -> HuffmanTree
 buildHuffmanTree =  evalState (build 0) . concat . zipWith f [1..16]
