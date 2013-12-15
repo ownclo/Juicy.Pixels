@@ -2,7 +2,6 @@
 module Codec.Picture.Jpg.Common
     ( DctCoefficients
     , ceilDiv
-    , JpgUnpackerParameter( .. )
     , decodeInt
     , dcCoefficientDecode
     , deQuantize
@@ -15,7 +14,6 @@ module Codec.Picture.Jpg.Common
     , unpackMacroBlock
     , rasterMap
     , decodeMacroBlock
-    , decodeRestartInterval
     ) where
 
 import Control.Applicative( (<$>), pure )
@@ -40,36 +38,8 @@ import Codec.Picture.Jpg.DefaultTable
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient
 
-data JpgUnpackerParameter = JpgUnpackerParameter
-    { dcHuffmanTree        :: !HuffmanPackedTree
-    , acHuffmanTree        :: !HuffmanPackedTree
-    , componentIndex       :: {-# UNPACK #-} !Int
-    , restartInterval      :: {-# UNPACK #-} !Int
-    , componentWidth       :: {-# UNPACK #-} !Int
-    , componentHeight      :: {-# UNPACK #-} !Int
-    , subSampling          :: !(Int, Int)
-    , coefficientRange     :: !(Int, Int)
-    , successiveApprox     :: !(Int, Int)
-    , readerIndex          :: {-# UNPACK #-} !Int
-    , indiceVector         :: {-# UNPACK #-} !Int
-    , blockIndex           :: {-# UNPACK #-} !Int
-    , blockMcuX            :: {-# UNPACK #-} !Int
-    , blockMcuY            :: {-# UNPACK #-} !Int
-    }
-    deriving Show
-
 ceilDiv :: Int -> Int -> Int
 ceilDiv n d = (n+d-1)`div`d
-
-decodeRestartInterval :: BoolReader s Int32
-decodeRestartInterval = return (-1) {-  do
-  bits <- replicateM 8 getNextBitJpg
-  if bits == replicate 8 True
-     then do
-         marker <- replicateM 8 getNextBitJpg
-         return $ packInt marker
-     else return (-1)
-        -}
 
 {-# INLINE decodeInt #-}
 decodeInt :: Int -> BoolReader s Int32
