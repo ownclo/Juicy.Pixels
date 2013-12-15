@@ -67,10 +67,10 @@ instance SizeCalculable FrameHeader where
             M.size fcspecs * 3
 
 instance SizeCalculable ScanHeader where
-        calculateSize sh = 2 + 1 + (length sh * 3) + 1 + 1 + 1
+        calculateSize sh = 2 + 1 + (length sh * 2) + 1 + 1 + 1
 
 instance SizeCalculable HuffmanSegment where
-        calculateSize (HFS{_lengths = ls}) = 1 + 16 + sum ls
+        calculateSize (HFS{_lengths = ls}) = 2 + 1 + 16 + sum ls
 
 quanTable :: Printer QTableSpec
 quanTable (QTableSpec id' p qTable) = do
@@ -94,7 +94,7 @@ startOfFrame :: Printer FrameHeader
 startOfFrame fh@(FrameHeader (Dim y x) fcspecs) = do
         marker SOF
         wordI $ calculateSize fh
-        byte 0 -- Sample precision. Unsupported (0 means 8bit)
+        byte 8 -- Sample precision. Unsupported (8 means 8bit)
         word y
         word x
         byteI $ M.size fcspecs
